@@ -60,6 +60,13 @@ pub fn resolve_game(doors: &[Door; 3], final_choice: usize) -> (bool, [Door; 3])
     }
     (win, revealed)
 }
+use wasm_bindgen::prelude::*;
+
+#[wasm_bindgen]
+pub fn run_batch_wasm(count: u64) -> Vec<u64> {
+    let (sw, stw) = run_batch(count);
+    vec![sw, stw]
+}
 
 /// Fast batch simulation — returns (switch_wins, stick_wins)
 pub fn run_batch(count: u64) -> (u64, u64) {

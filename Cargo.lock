@@ -1063,9 +1063,11 @@ dependencies = [
  "dioxus",
  "getrandom",
  "gloo-timers",
+ "js-sys",
  "rand",
  "wasm-bindgen",
  "wasm-bindgen-futures",
+ "web-sys",
  "web-time",
 ]
 

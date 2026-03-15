@@ -3,6 +3,12 @@ mod game_logic;
 use dioxus::prelude::*;
 use game_logic::*;
 use rand::Rng;
+use web_sys::{Worker, MessageEvent};
+use wasm_bindgen::prelude::*;
+use wasm_bindgen::JsCast;
+use gloo_timers::future::TimeoutFuture;
+use std::rc::Rc;
+use std::cell::RefCell;
 
 // ========== Data Types ==========
 
@@ -154,10 +160,9 @@ fn App() -> Element {
         }
     };
 
-    // Run simulation
+    // Run simulation (Multi-threaded version!)
     let mut handle_run_simulation = move |runs: u64| {
         if runs > 1000 {
-            // Turbo mode: chunked async batch
             active_mode.set(ActiveMode::Simulation);
             is_running.set(true);
             sim_stats.set(Stats::default());
@@ -165,46 +170,94 @@ fn App() -> Element {
 
             spawn(async move {
                 let chunk_size: u64 = 1_000_000;
-                let mut total_done: u64 = 0;
-                let mut total_sw: u64 = 0;
-                let mut total_stw: u64 = 0;
-
-                while total_done < runs {
-                    if !*is_running.read() {
-                        break;
+                
+                // 1. Detect cores and spawn workers
+                let n_cores = web_sys::window()
+                    .and_then(|w| Some(w.navigator().hardware_concurrency() as usize))
+                    .unwrap_or(4);
+                
+                let mut workers = Vec::new();
+                for _ in 0..n_cores {
+                    if let Ok(worker) = Worker::new("worker.js") {
+                        workers.push(worker);
                     }
-
-                    let batch = std::cmp::min(chunk_size, runs - total_done);
-                    let (sw, stw) = run_batch(batch);
-                    total_done += batch;
-                    total_sw += sw;
-                    total_stw += stw;
-
-                    // Update UI every batch for that "Premium" fluid feel
-                    sim_stats.set(Stats {
-                        total: total_done,
-                        switch_wins: total_sw,
-                        stick_wins: total_stw,
-                    });
-
-                    sim_history.write().push(DataPoint {
-                        total: total_done,
-                        switch_pct: total_sw as f64 / total_done as f64,
-                        stick_pct: total_stw as f64 / total_done as f64,
-                    });
-                    
-                    {
-                        let mut h = sim_history.write();
-                        if h.len() > 100 {
-                            let start = h.len() - 100;
-                            *h = h[start..].to_vec();
-                        }
-                    }
-
-                    // Yield to browser event loop to keep UI smooth
-                    gloo_timers::future::TimeoutFuture::new(0).await;
                 }
 
+                if workers.is_empty() {
+                    // Fallback to single thread
+                    let mut total_done: u64 = 0;
+                    let mut total_sw: u64 = 0;
+                    let mut total_stw: u64 = 0;
+                    while total_done < runs && *is_running.read() {
+                        let batch = std::cmp::min(chunk_size, runs - total_done);
+                        let (sw, stw) = run_batch(batch);
+                        total_done += batch;
+                        total_sw += sw;
+                        total_stw += stw;
+                        sim_stats.set(Stats { total: total_done, switch_wins: total_sw, stick_wins: total_stw });
+                        sim_history.write().push(DataPoint { total: total_done, switch_pct: total_sw as f64 / total_done as f64, stick_pct: total_stw as f64 / total_done as f64 });
+                        TimeoutFuture::new(0).await;
+                    }
+                } else {
+                    let runs_per_worker = runs / workers.len() as u64;
+                    let last_worker_extra = runs % workers.len() as u64;
+
+                    // Dynamically find paths (Trunk hashes them)
+                    let doc = web_sys::window().unwrap().document().unwrap();
+                    let wasm_path = doc.query_selector("link[rel='preload'][as='fetch'][type='application/wasm']")
+                        .ok().flatten().and_then(|el| el.get_attribute("href")).unwrap_or_default();
+                    let js_path = doc.query_selector("link[rel='modulepreload'][href*='_rust']")
+                        .ok().flatten().and_then(|el| el.get_attribute("href")).unwrap_or_default();
+
+                    for (i, worker) in workers.iter().enumerate() {
+                        let mut stats_signal = sim_stats.clone();
+                        let mut history_signal = sim_history.clone();
+                        let my_runs = runs_per_worker + if i == 0 { last_worker_extra } else { 0 };
+
+                        let onmessage = Closure::wrap(Box::new(move |e: MessageEvent| {
+                            if let Ok(data) = e.data().dyn_into::<js_sys::Object>() {
+                                let sw = js_sys::Reflect::get(&data, &"switch_wins".into()).unwrap().as_f64().unwrap() as u64;
+                                let stw = js_sys::Reflect::get(&data, &"stick_wins".into()).unwrap().as_f64().unwrap() as u64;
+                                let batch_done = js_sys::Reflect::get(&data, &"batch_done".into()).unwrap().as_f64().unwrap() as u64;
+
+                                let mut s = stats_signal.read().clone();
+                                s.total += batch_done;
+                                s.switch_wins += sw;
+                                s.stick_wins += stw;
+                                // Update history every 10M or on final to keep graph smooth but performant
+                                if s.total % 10_000_000 < batch_done || s.total >= runs {
+                                    let mut h = history_signal.write();
+                                    h.push(DataPoint {
+                                        total: s.total,
+                                        switch_pct: s.switch_wins as f64 / s.total as f64,
+                                        stick_pct: s.stick_wins as f64 / s.total as f64,
+                                    });
+                                    if h.len() > 100 { *h = h[h.len()-100..].to_vec(); }
+                                }
+
+                                stats_signal.set(s);
+                            }
+                        }) as Box<dyn FnMut(MessageEvent)>);
+
+                        worker.set_onmessage(Some(onmessage.as_ref().unchecked_ref()));
+                        onmessage.forget(); 
+
+                        let msg = js_sys::Object::new();
+                        js_sys::Reflect::set(&msg, &"totalRuns".into(), &(my_runs as f64).into()).unwrap();
+                        js_sys::Reflect::set(&msg, &"chunkSize".into(), &(1_000_000f64).into()).unwrap();
+                        js_sys::Reflect::set(&msg, &"wasmPath".into(), &wasm_path.clone().into()).unwrap();
+                        js_sys::Reflect::set(&msg, &"jsPath".into(), &js_path.clone().into()).unwrap();
+                        worker.post_message(&msg).unwrap();
+                    }
+
+                    // Keep spawn alive until all done or stopped
+                    while *is_running.read() && sim_stats.read().total < runs {
+                        TimeoutFuture::new(100).await;
+                    }
+                }
+
+                // Cleanup
+                for worker in workers { worker.terminate(); }
                 is_running.set(false);
             });
         } else {
@@ -341,6 +394,8 @@ fn App() -> Element {
                                 "Should you stick with your original choice, or switch?"
                                 br {} 
                                 "Play the game to find out!"
+                                br {}
+                                "Turbo Warp Speed leverages Multi-Core WebWorkers for millions of runs."
                             }
                         }
                     }
