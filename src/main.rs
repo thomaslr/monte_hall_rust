@@ -164,7 +164,7 @@ fn App() -> Element {
             sim_history.set(vec![]);
 
             spawn(async move {
-                let chunk_size: u64 = 100_000;
+                let chunk_size: u64 = 1_000_000;
                 let mut total_done: u64 = 0;
                 let mut total_sw: u64 = 0;
                 let mut total_stw: u64 = 0;
