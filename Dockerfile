@@ -1,7 +1,7 @@
 # ===========================
 # Stage 1: Build the WASM app
 # ===========================
-FROM rust:1.83 AS builder
+FROM rust:1.85 AS builder
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
@@ -12,7 +12,8 @@ RUN apt-get update && apt-get install -y \
 
 # Install wasm target and tools
 RUN rustup target add wasm32-unknown-unknown
-RUN cargo install --locked trunk wasm-bindgen-cli
+RUN cargo install --locked trunk
+RUN cargo install --locked wasm-bindgen-cli --version 0.2.114
 
 WORKDIR /app
 
