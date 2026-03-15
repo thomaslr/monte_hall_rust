@@ -164,12 +164,10 @@ fn App() -> Element {
             sim_history.set(vec![]);
 
             spawn(async move {
-                let chunk_size: u64 = 1_000_000;
+                let chunk_size: u64 = 100_000;
                 let mut total_done: u64 = 0;
                 let mut total_sw: u64 = 0;
                 let mut total_stw: u64 = 0;
-                
-                let mut last_ui_update = web_time::Instant::now();
 
                 while total_done < runs {
                     if !*is_running.read() {
@@ -182,32 +180,28 @@ fn App() -> Element {
                     total_sw += sw;
                     total_stw += stw;
 
-                    // Update UI smoothly every ~50ms or when finished
-                    if last_ui_update.elapsed().as_millis() > 50 || total_done >= runs {
-                        last_ui_update = web_time::Instant::now();
-                        
-                        sim_stats.set(Stats {
-                            total: total_done,
-                            switch_wins: total_sw,
-                            stick_wins: total_stw,
-                        });
+                    // Update UI every batch for that "Premium" fluid feel
+                    sim_stats.set(Stats {
+                        total: total_done,
+                        switch_wins: total_sw,
+                        stick_wins: total_stw,
+                    });
 
-                        sim_history.write().push(DataPoint {
-                            total: total_done,
-                            switch_pct: total_sw as f64 / total_done as f64,
-                            stick_pct: total_stw as f64 / total_done as f64,
-                        });
-                        
-                        {
-                            let mut h = sim_history.write();
-                            if h.len() > 100 {
-                                let start = h.len() - 100;
-                                *h = h[start..].to_vec();
-                            }
+                    sim_history.write().push(DataPoint {
+                        total: total_done,
+                        switch_pct: total_sw as f64 / total_done as f64,
+                        stick_pct: total_stw as f64 / total_done as f64,
+                    });
+                    
+                    {
+                        let mut h = sim_history.write();
+                        if h.len() > 100 {
+                            let start = h.len() - 100;
+                            *h = h[start..].to_vec();
                         }
                     }
 
-                    // Always yield to let the browser process the UI updates
+                    // Yield to browser event loop to keep UI smooth
                     gloo_timers::future::TimeoutFuture::new(0).await;
                 }
 
@@ -344,6 +338,7 @@ fn App() -> Element {
                                 br {}
                                 br {}
                                 span { class: "label", "The Question:" }
+                                br {}
                                 "Should you stick with your original choice, or switch? Play the game to find out!"
                             }
                         }
