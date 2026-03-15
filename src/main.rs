@@ -336,10 +336,11 @@ fn App() -> Element {
                                 span { class: "label", "The Setup:" }
                                 "You're on a game show and choose one of three doors: one has a car, two have goats. The host then reveals a goat behind an unchosen door."
                                 br {}
-                                br {}
                                 span { class: "label", "The Question:" }
-                                br {}
-                                "Should you stick with your original choice, or switch? Play the game to find out!"
+                                
+                                "Should you stick with your original choice, or switch?"
+                                br {} 
+                                "Play the game to find out!"
                             }
                         }
                     }
