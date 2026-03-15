@@ -1,4 +1,5 @@
-use rand::Rng;
+use rand::{Rng, SeedableRng};
+use rand::rngs::SmallRng;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum DoorContent {
@@ -62,32 +63,18 @@ pub fn resolve_game(doors: &[Door; 3], final_choice: usize) -> (bool, [Door; 3])
 
 /// Fast batch simulation — returns (switch_wins, stick_wins)
 pub fn run_batch(count: u64) -> (u64, u64) {
-    let mut rng = rand::thread_rng();
     let mut switch_wins: u64 = 0;
     let mut stick_wins: u64 = 0;
+    let mut rng = rand::thread_rng();
 
     for _ in 0..count {
         let car = rng.gen_range(0..3u8);
         let pick = rng.gen_range(0..3u8);
 
-        // Host reveals a goat that isn't the player's pick
-        let host = if pick == car {
-            // player picked car, host picks either goat randomly
-            let offset = rng.gen_range(1..3u8);
-            (pick + offset) % 3
-        } else {
-            // player picked goat, host must reveal the other goat
-            (0..3u8).find(|&d| d != pick && d != car).unwrap()
-        };
-
-        // Switch door is the remaining one
-        let switch_door = (0..3u8).find(|&d| d != pick && d != host).unwrap();
-
-        if switch_door == car {
-            switch_wins += 1;
-        }
         if pick == car {
             stick_wins += 1;
+        } else {
+            switch_wins += 1;
         }
     }
 
