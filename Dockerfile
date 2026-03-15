@@ -8,12 +8,12 @@ RUN apt-get update && apt-get install -y \
     build-essential \
     pkg-config \
     libssl-dev \
+    ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 # Install wasm target and tools
 RUN rustup target add wasm32-unknown-unknown
 RUN cargo install --locked trunk
-RUN cargo install --locked wasm-bindgen-cli --version 0.2.114
 
 WORKDIR /app
 
@@ -26,8 +26,8 @@ RUN rm -rf src
 # Copy full source
 COPY . .
 
-# Build with trunk for production
-RUN trunk build --release
+# Build with trunk for production (verbose for debugging)
+RUN trunk build --release --verbose
 
 # ===========================
 # Stage 2: Serve with nginx
