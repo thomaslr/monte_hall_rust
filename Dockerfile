@@ -14,6 +14,7 @@ RUN apt-get update && apt-get install -y \
 # Install wasm target and tools
 RUN rustup target add wasm32-unknown-unknown
 RUN cargo install --locked trunk
+RUN cargo install --locked wasm-bindgen-cli --version 0.2.99
 
 WORKDIR /app
 
