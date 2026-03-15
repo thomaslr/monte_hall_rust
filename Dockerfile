@@ -3,11 +3,16 @@
 # ===========================
 FROM rust:1.83 AS builder
 
-# Install wasm target
-RUN rustup target add wasm32-unknown-unknown
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    pkg-config \
+    libssl-dev \
+    && rm -rf /var/lib/apt/lists/*
 
-# Install trunk (WASM bundler)
-RUN cargo install trunk --locked
+# Install wasm target and tools
+RUN rustup target add wasm32-unknown-unknown
+RUN cargo install --locked trunk wasm-bindgen-cli
 
 WORKDIR /app
 
